@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Task Scheduler — Kullanıcı Arayüzü</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body{padding:18px}
+      .task{border:1px solid #e9ecef;border-radius:6px;padding:12px;margin-bottom:8px}
+      .small-muted{font-size:.9rem;color:#6c757d}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h4">Task Scheduler</h1>
+        <div>
+          <button class="btn btn-outline-secondary" id="helpBtn">Algoritma Bilgisi</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-5">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Yeni Görev Ekle</h5>
+              <form id="taskForm" class="needs-validation" novalidate>
+                <div class="mb-2">
+                  <label class="form-label">Görev adı</label>
+                  <input name="name" class="form-control" placeholder="Örn: Rapor yaz" required>
+                  <div class="invalid-feedback">Görev adı gerekli.</div>
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Önem <span id="impVal" class="fw-bold">3</span></label>
+                  <input type="range" name="importance" id="importance" min="1" max="5" step="1" value="3" class="form-range">
+                  <div class="small-muted">1 = çok düşük, 5 = çok yüksek</div>
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Aciliyet <span id="urgVal" class="fw-bold">3</span></label>
+                  <input type="range" name="urgency" id="urgency" min="1" max="5" step="1" value="3" class="form-range">
+                  <div class="small-muted">Aciliyet, EDF benzeri boost için önemli</div>
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Süre (saat)</label>
+                  <input name="duration" id="duration" type="number" step="0.5" class="form-control" value="1" required>
+                  <div class="small-muted">0.5 = yarım saat; değer arttıkça skor düşer</div>
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Deadline (saat, opsiyonel)</label>
+                  <input name="deadline_hours" id="deadline_hours" type="number" step="1" class="form-control" placeholder="Örn: 48">
+                  <div class="small-muted">Girdiğiniz saat sayısına göre 'deadline pressure' hesaplanır (1/(kalan+1)).</div>
+                </div>
+
+                <div class="d-flex gap-2 mb-3">
+                  <button class="btn btn-primary" type="submit">Ekle</button>
+                  <button id="presetQuick" class="btn btn-outline-secondary" type="button">Hızlı: Acil İş</button>
+                  <button id="presetLong" class="btn btn-outline-secondary" type="button">Hızlı: Uzun Proje</button>
+                  <button id="clear" class="btn btn-danger ms-auto" type="button">Tümünü Temizle</button>
+                </div>
+
+                <div class="card p-2">
+                  <div class="small-muted mb-1">Anlık Skor Önizlemesi</div>
+                  <div id="previewScore" class="fs-5 fw-bold">Skor: —</div>
+                  <pre id="breakdown" class="small-muted mb-0" style="white-space:pre-wrap"></pre>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-7">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Sıralı Görevler</h5>
+            <button id="refreshBtn" class="btn btn-sm btn-outline-primary">Yenile</button>
+          </div>
+          <div id="tasks"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" tabindex="-1" id="helpModal">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Algoritma ve Alan Açıklamaları</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+          </div>
+          <div class="modal-body">
+            <p>Bu uygulama şu heuristic ile görevleri sıralar:</p>
+            <pre>
+Skor = (Önem × 3) + (Aciliyet × 5) + DeadlinePressure - (Süre × 0.5)
+Ek olarak, eğer Aciliyet ≥ 4 ise +10 (EDF benzeri boost)
+
+DeadlinePressure = 1 / (kalan_saat + 1)  (deadline yoksa 0, geçmişse 1)
+            </pre>
+            <h6>Alanlar:</h6>
+            <ul>
+              <li><strong>Önem</strong>: Görevin stratejik veya kritik olması (1–5).</li>
+              <li><strong>Aciliyet</strong>: Hemen yapılması gerekip gerekmediği (1–5). Yüksek aciliyet ekstra +10 bonus alır.</li>
+              <li><strong>Süre</strong>: Tahmini süre (saat). Süre arttıkça skor azalır.</li>
+              <li><strong>Deadline</strong>: Saat cinsinden kalan süre. Kısa sürede bitmesi gereken görevler daha yüksek baskı alır.</li>
+            </ul>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      const W_IMPORTANCE = 3.0;
+      const W_URGENCY = 5.0;
+      const W_DURATION = 0.5;
+      const EDF_THRESHOLD = 4;
+      const EDF_BOOST = 10.0;
+
+      const imp = document.getElementById('importance');
+      const urg = document.getElementById('urgency');
+      const dur = document.getElementById('duration');
+      const dl = document.getElementById('deadline_hours');
+      const impVal = document.getElementById('impVal');
+      const urgVal = document.getElementById('urgVal');
+      const preview = document.getElementById('previewScore');
+      const breakdown = document.getElementById('breakdown');
+      const tasksDiv = document.getElementById('tasks');
+
+      function deadlinePressureFromHours(h){
+        if(!h && h !== 0) return 0.0;
+        const num = Number(h);
+        if(isNaN(num)) return 0.0;
+        if(num < 0) return 1.0;
+        return 1.0 / (num + 1.0);
+      }
+
+      function computeScoreLocal({importance, urgency, duration, deadline_hours}){
+        const dlp = deadlinePressureFromHours(deadline_hours);
+        let raw = W_IMPORTANCE * importance + W_URGENCY * urgency + dlp - W_DURATION * duration;
+        if(urgency >= EDF_THRESHOLD) raw += EDF_BOOST;
+        return {score: raw, breakdown: {imp: W_IMPORTANCE*importance, urg: W_URGENCY*urgency, dlp, dur: W_DURATION*duration, boost: urgency>=EDF_THRESHOLD ? EDF_BOOST:0}};
+      }
+
+      function updatePreview(){
+        impVal.textContent = imp.value;
+        urgVal.textContent = urg.value;
+        const previewData = computeScoreLocal({importance:Number(imp.value), urgency:Number(urg.value), duration:Number(dur.value), deadline_hours: dl.value ? Number(dl.value) : null});
+        preview.textContent = `Skor: ${previewData.score.toFixed(2)}`;
+        breakdown.textContent = `Önem: ${previewData.breakdown.imp.toFixed(2)}\nAciliyet: ${previewData.breakdown.urg.toFixed(2)}\nDeadline baskısı: ${previewData.breakdown.dlp.toFixed(3)}\nSüre cezası: -${previewData.breakdown.dur.toFixed(2)}${previewData.breakdown.boost?"\nEDF boost: +"+previewData.breakdown.boost.toFixed(1):""}`;
+      }
+
+      imp.addEventListener('input', updatePreview);
+      urg.addEventListener('input', updatePreview);
+      dur.addEventListener('input', updatePreview);
+      dl.addEventListener('input', updatePreview);
+      updatePreview();
+
+      document.getElementById('presetQuick').addEventListener('click', ()=>{
+        imp.value=4; urg.value=5; dur.value=0.5; dl.value=4; updatePreview();
+      });
+      document.getElementById('presetLong').addEventListener('click', ()=>{
+        imp.value=3; urg.value=2; dur.value=10; dl.value=168; updatePreview();
+      });
+
+      const form = document.getElementById('taskForm');
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        if(!form.checkValidity()) { form.classList.add('was-validated'); return; }
+        const payload = {
+          name: form.name.value,
+          importance: Number(form.importance.value),
+          urgency: Number(form.urgency.value),
+          duration: Number(form.duration.value),
+          deadline_hours: form.deadline_hours.value ? Number(form.deadline_hours.value) : null,
+        };
+        await fetch('/tasks', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(payload)});
+        form.reset(); updatePreview(); refresh();
+      });
+
+      document.getElementById('clear').addEventListener('click', async ()=>{ await fetch('/tasks',{method:'DELETE'}); refresh(); });
+      document.getElementById('refreshBtn').addEventListener('click', refresh);
+
+      async function refresh(){
+        const res = await fetch('/tasks');
+        const data = await res.json();
+        tasksDiv.innerHTML = '';
+        if(!data.length) { tasksDiv.innerHTML = '<div class="text-muted">Görev yok</div>'; return; }
+        data.forEach((t, i) => {
+          const el = document.createElement('div'); el.className='task';
+          const learnedText = t.learned_bonus ? ` · Öğrenme: ${t.learned_bonus.toFixed(2)}` : '';
+          el.innerHTML = `<div class="d-flex justify-content-between align-items-start gap-3"><div class="flex-grow-1"><strong>${i+1}. ${t.name}</strong><div class="small-muted">Önem: ${t.importance} · Acil: ${t.urgency} · Süre: ${t.duration}h · Kategori: ${t.category}</div><div class="small-muted">Temel: ${t.baseline_score.toFixed(2)}${learnedText}</div></div><div class="text-end"><div class="fw-bold">${t.score.toFixed(2)}</div><div class="small-muted">${new Date(t.created_at).toLocaleString()}</div><div class="d-flex gap-2 justify-content-end mt-2"><button class="btn btn-sm btn-outline-success" data-complete-id="${t.id}" type="button">Tamamlandı</button><button class="btn btn-sm btn-outline-danger" data-task-id="${t.id}" type="button">Sil</button></div></div></div>`;
+          tasksDiv.appendChild(el);
+        });
+
+        tasksDiv.querySelectorAll('[data-complete-id]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const taskId = button.getAttribute('data-complete-id');
+            await fetch(`/tasks/${taskId}/complete`, { method: 'POST' });
+            refresh();
+          });
+        });
+
+        tasksDiv.querySelectorAll('[data-task-id]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const taskId = button.getAttribute('data-task-id');
+            await fetch(`/tasks/${taskId}`, { method: 'DELETE' });
+            refresh();
+          });
+        });
+      }
+
+      const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+      document.getElementById('helpBtn').addEventListener('click', ()=>helpModal.show());
+
+      refresh();
+    </script>
+  </body>
+</html>

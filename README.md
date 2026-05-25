@@ -8,14 +8,13 @@ Python project for scheduling tasks. Contains core scheduling logic, synthetic d
 - `tests/` — unit tests
 - `viz/` — visualization helpers
 
+## Run the web app
+This repository includes a FastAPI backend and a static UI for adding tasks and viewing the ranked list.
 
-##projeyi çalıştırmak için:
-cd task_scheduler
-pip install matplotlib
-jupyter notebook demo.ipynb
+Run locally (venv active):
+```
+python -m pip install -r requirements.app.txt
+uvicorn app:app --reload --port 8888
+```
 
-mevcut klasördeyken:
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-& .\.venv\Scripts\Activate.ps1
-python -m pip install matplotlib notebook
-python -m notebook demo.ipynb
+Then open http://127.0.0.1:8888 to use the UI and see the ranked list.
