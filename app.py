@@ -226,5 +226,114 @@ def import_history(records: List[HistoricalTaskIn]):
     return {"status": "imported", "count": len(imported_ids), "ids": imported_ids}
 
 
+@app.get("/evaluation")
+def evaluate_test_set():
+    """Evaluate on data/dataset_test_100.csv and return ROC AUC / AP and top picks.
+
+    This avoids external ML deps by computing AUC/AP with pure Python.
+    """
+    import csv
+    from pathlib import Path
+    from datetime import datetime, timedelta
+
+    base = Path(__file__).resolve().parent
+    test_csv = base / "data" / "dataset_test_100.csv"
+    if not test_csv.exists():
+        return {"error": "test CSV not found", "path": str(test_csv)}
+
+    # load training history and build combined records
+    records = list_all_records(DATABASE_FILE)
+
+    test_items = []
+    with test_csv.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader, start=1):
+            name = row.get("name") or f"test-{i}"
+            importance = int(row.get("importance") or 3)
+            urgency = int(row.get("urgency") or 3)
+            duration = float(row.get("duration") or 1.0)
+            category = row.get("category") or "genel"
+            created_at = None
+            if row.get("created_at"):
+                try:
+                    created_at = datetime.fromisoformat(row["created_at"])
+                except Exception:
+                    created_at = datetime.now()
+            else:
+                created_at = datetime.now()
+
+            dh = row.get("deadline_hours")
+            deadline = None
+            if dh and dh.strip() != "":
+                try:
+                    deadline = created_at + timedelta(hours=float(dh))
+                except Exception:
+                    deadline = None
+
+            status = (row.get("status") or "deleted").strip()
+            # create an ephemeral TaskRecord-like object using Task
+            from core.task import Task
+            t = Task(name=name, importance=importance, urgency=urgency, duration=duration, deadline=deadline, category=category, created_at=created_at)
+            # fake id space to avoid colliding with DB ids
+            fake_id = 1000000 + i
+            from core.learning import TaskRecord as TR
+            tr = TR(id=fake_id, task=t, status="active", created_at=created_at, completed_at=None, deleted_at=None)
+            test_items.append((tr, 1 if status == "completed" else 0))
+
+    combined = records + [tr for tr, _ in test_items]
+    ranked = rank_adaptively(combined, iterations=128)
+
+    # extract scores for test items
+    scores = {}
+    for final_score, learned_bonus, rec in ranked:
+        if rec.id >= 1000000:
+            scores[rec.id] = final_score
+
+    # prepare labels and scores lists aligned
+    y_true = []
+    y_score = []
+    for tr, label in test_items:
+        y_true.append(label)
+        y_score.append(scores.get(tr.id, 0.0))
+
+    # compute AUC (Mann-Whitney U style) and average precision (AP)
+    def auc_from_scores(y_true, y_score):
+        # handle trivial cases
+        n_pos = sum(1 for y in y_true if y == 1)
+        n_neg = len(y_true) - n_pos
+        if n_pos == 0 or n_neg == 0:
+            return 0.0
+        # rank scores
+        paired = sorted(((s, y) for s, y in zip(y_score, y_true)), key=lambda x: x[0])
+        ranks = list(range(1, len(paired) + 1))
+        # sum ranks for positives
+        sum_ranks_pos = sum(r for r, (_, y) in zip(ranks, paired) if y == 1)
+        auc = (sum_ranks_pos - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+        return auc
+
+    def average_precision(y_true, y_score):
+        # sort by score desc
+        paired = sorted(((s, y) for s, y in zip(y_score, y_true)), key=lambda x: x[0], reverse=True)
+        n_pos = sum(1 for _, y in paired if y == 1)
+        if n_pos == 0:
+            return 0.0
+        tp = 0
+        precisions = []
+        for i, (_, y) in enumerate(paired, start=1):
+            if y == 1:
+                tp += 1
+                precisions.append(tp / i)
+        return sum(precisions) / n_pos if precisions else 0.0
+
+    auc = auc_from_scores(y_true, y_score)
+    ap = average_precision(y_true, y_score)
+
+    # top 10 test picks
+    top_test = sorted(((scores.get(tr.id, 0.0), tr.id, tr.task.name) for tr, _ in test_items), reverse=True)[:10]
+    top_list = [{"id": tid, "name": name, "score": round(float(s), 3)} for s, tid, name in top_test]
+
+    return {"auc": round(auc, 4), "average_precision": round(ap, 4), "top": top_list, "n_test": len(test_items)}
+
+
 # Serve the static UI after the API routes are declared.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
